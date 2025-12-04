@@ -11,10 +11,11 @@ interface GenerateImageParams {
 
 /**
  * אסטרטגיה 1: Creative Director
- * הוספנו הוראה: לתרגם לאנגלית אם הקלט בעברית
+ * תיקון: מחקנו את הדילוג על תמונה אחת. עכשיו ה-AI עובד תמיד.
  */
 async function generateCreativePrompts(ai: GoogleGenAI, basePrompt: string, count: number, isEditing: boolean): Promise<string[]> {
-  if (count <= 1) return [basePrompt];
+  // נמחק: if (count <= 1) return [basePrompt]; 
+  // אנחנו רוצים שה-AI יעבוד תמיד כדי לתרגם ולשפר את הפרומפט!
 
   try {
     const response = await ai.models.generateContent({
@@ -31,7 +32,7 @@ Context: ${isEditing ? "User is editing an uploaded image." : "User is generatin
 TASK: Generate ${count} distinct, highly detailed artistic prompts based on the translated User Input.
 OUTPUT LANGUAGE: English ONLY.
 CRITICAL REQUIREMENT: Output ONLY the prompts as a valid JSON array of strings.
-Example output: ["A futuristic city at sunset", "A watercolor painting of a city"]`
+Example output: ["prompt 1", "prompt 2"]`
         }]
       }]
     });
@@ -41,20 +42,26 @@ Example output: ["A futuristic city at sunset", "A watercolor painting of a city
     
     try {
         const prompts = JSON.parse(cleanedText);
-        return Array.isArray(prompts) ? prompts.slice(0, count) : Array(count).fill(basePrompt);
+        // אם ה-AI החזיר מערך תקין, נשתמש בו
+        if (Array.isArray(prompts) && prompts.length > 0) {
+            return prompts.slice(0, count);
+        }
     } catch (e) {
-        return Array(count).fill(basePrompt);
+        console.warn("JSON parse failed, falling back to raw text translation");
     }
+    
+    // אם ה-JSON נכשל, נחזיר את הטקסט הנקי (אולי ה-AI פשוט כתב את הפרומפט)
+    return [cleanedText || basePrompt];
 
   } catch (e) {
     console.warn("Creative prompt generation failed", e);
-    return Array(count).fill(basePrompt);
+    // במקרה חירום: מחזירים את הקלט המקורי
+    return [basePrompt];
   }
 }
 
 /**
  * אסטרטגיה 2: Style Master
- * הוספנו הוראה: לתרגם לאנגלית לפני יצירת הסגנון
  */
 async function generateStylePrompts(ai: GoogleGenAI, basePrompt: string): Promise<string[]> {
   const styles = ["Realistic", "Watercolor", "Cyberpunk", "Sketch"];
@@ -67,15 +74,11 @@ async function generateStylePrompts(ai: GoogleGenAI, basePrompt: string): Promis
           role: "user",
           parts: [{
             text: `TASK: Convert the User Input into a detailed prompt for a ${style} style image.
-
 User Input: "${basePrompt}"
-
 INSTRUCTIONS:
-1. Detect the language of the User Input.
-2. If it is Hebrew (or not English), TRANSLATE the meaning to English.
-3. Create a descriptive prompt in English that fits the "${style}" style.
-
-OUTPUT: Provide ONLY the final English prompt text. No explanations.`
+1. Detect language. If Hebrew/non-English -> TRANSLATE to English.
+2. Create a prompt in English for "${style}" style.
+OUTPUT: English prompt text only.`
           }]
         }]
       });
@@ -100,12 +103,13 @@ export async function generateWallpaper({ prompt, baseImageBase64, aspectRatio, 
     if (mode === 'styles' && count === 4) {
       prompts = await generateStylePrompts(ai, prompt);
     } else {
+      // גם במצב Creative (תמונה אחת), אנחנו שולחים ל-AI כדי שיתרגם וישפר
       prompts = await generateCreativePrompts(ai, prompt, count, !!baseImageBase64);
     }
 
-    // יצירת התמונות
+    // יצירת התמונות עם Pollinations
     const validImages = prompts.map(p => {
-        // אנחנו מקודדים את הפרומפט (שעכשיו הוא באנגלית בטוחה) ל-URL
+        // קידוד מלא של הפרומפט ל-URL
         return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=1080&height=1920&nologo=true`;
     });
 
