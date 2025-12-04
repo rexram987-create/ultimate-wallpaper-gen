@@ -69,7 +69,7 @@ async function generateDiversePrompts(ai: GoogleGenAI, basePrompt: string, count
 
 export async function generateWallpaper({ prompt, baseImageBase64, aspectRatio, count = 1 }: GenerateImageParams): Promise<{ images: string[]; text: string }> {
   // Initialize AI client inside the function to prevent top-level process.env issues
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey:import.meta.env.VITE_GEMINI_API_KEY });
 
   // 1. Map Unsupported Aspect Ratios
   // The API only supports specific ratios. We map our custom "Full Mobile" (9:19.5) to "9:16".
