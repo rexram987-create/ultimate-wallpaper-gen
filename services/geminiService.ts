@@ -9,106 +9,90 @@ interface GenerateImageParams {
   mode?: 'creative' | 'styles';
 }
 
-function cleanAIResponse(text: string): string {
-  return text.replace(/```json/g, '').replace(/```/g, '').trim();
+/**
+ * מנקה כוכביות וסימנים מיותרים שה-AI לפעמים מוסיף
+ */
+function cleanText(text: string): string {
+  return text.replace(/\*/g, '').replace(/```/g, '').trim();
 }
 
 /**
- * Creative Director - עם תרגום חכם מעברית לאנגלית
+ * המוח היצירתי (Creative)
  */
-async function generateCreativePrompts(ai: GoogleGenAI, basePrompt: string, count: number, isEditing: boolean): Promise<string[]> {
-  const safePrompt = basePrompt.replace(/"/g, "'").replace(/\n/g, " ");
-
+async function generateCreativePrompts(ai: GoogleGenAI, basePrompt: string, count: number): Promise<string[]> {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: [{
         role: "user",
         parts: [{
-          text: `ROLE: Expert Translator & Art Director.
-INPUT: "${safePrompt}"
+          text: `You are a professional translator and art director.
+Step 1: Translate the following input to English (if it is Hebrew or another language).
+Step 2: Create a detailed artistic image prompt based on the translation.
 
-INSTRUCTIONS:
-1. IDENTIFY LANGUAGE: If the INPUT is in Hebrew (or any non-English language), TRANSLATE it to English immediately.
-2. ENHANCE: Create ${count} distinct artistic prompt(s) in English based on the translation.
-3. OUTPUT: Valid JSON Array of strings.
-
-CRITICAL: The Output MUST be in English. Do NOT output Hebrew characters.`
+Input: "${basePrompt}"
+Output: Just the English prompt text. Nothing else.`
         }]
       }]
     });
 
-    const text = response.text ? response.text() : ""; 
-    const cleanedText = cleanAIResponse(text);
-    
-    try {
-        const prompts = JSON.parse(cleanedText);
-        if (Array.isArray(prompts) && prompts.length > 0) return prompts.slice(0, count);
-    } catch (e) {}
-    
-    // אם ה-AI החזיר טקסט רגיל (שהוא לא JSON) והוא באנגלית - נשתמש בו
-    if (cleanedText && !/[\u0590-\u05FF]/.test(cleanedText)) return [cleanedText];
-
-    return ["Artistic masterpiece"];
+    const result = cleanText(response.text ? response.text() : "");
+    // משכפלים את הפרומפט כמספר התמונות (הגיוון יבוא מה-Seed בהמשך)
+    return Array(count).fill(result || "Artistic image");
 
   } catch (e) {
-    return ["Artistic wallpaper"];
+    return Array(count).fill("Artistic image");
   }
 }
 
 /**
- * Style Master - 4 סגנונות יציבים עם תרגום
+ * המוח הסגנוני (Styles) - הגרסה היציבה של האריות
  */
 async function generateStylePrompts(ai: GoogleGenAI, basePrompt: string): Promise<string[]> {
+  // 4 הסגנונות שעבדו הכי טוב
   const styles = ["Realistic", "Anime", "Cyberpunk", "Watercolor"];
-  const safePrompt = basePrompt.replace(/"/g, "'").replace(/\n/g, " ");
   
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{
-        role: "user",
-        parts: [{
-          text: `ROLE: Expert Art Director.
-INPUT: "${safePrompt}"
+  // שולחים 4 בקשות נפרדות במקביל (הכי אמין לעברית)
+  const promises = styles.map(async (style) => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{
+          role: "user",
+          parts: [{
+            text: `Task:
+1. Translate the Input to English.
+2. Write a short image prompt describing the subject in "${style}" style.
 
-TASK:
-1. First, TRANSLATE the INPUT to English if it is in Hebrew.
-2. Then, create exactly 4 distinct English image prompts, one for each style:
-   1. Realistic
-   2. Anime
-   3. Cyberpunk
-   4. Watercolor
-
-OUTPUT FORMAT: Return ONLY a JSON Array of 4 strings in English.`
+Input: "${basePrompt}"
+Output: Only the English prompt.`
+          }]
         }]
-      }]
-    });
-
-    const text = response.text ? response.text() : "";
-    const cleanedText = cleanAIResponse(text);
-    const prompts = JSON.parse(cleanedText);
-
-    if (Array.isArray(prompts) && prompts.length >= 4) {
-      return prompts.slice(0, 4);
+      });
+      
+      const text = cleanText(response.text ? response.text() : "");
+      // אם הטקסט ריק, מחזירים גיבוי
+      return text || `${style} style art of ${basePrompt}`;
+      
+    } catch (e) {
+      // אם הייתה שגיאה, מחזירים גיבוי כדי שלא יהיה "חור" של תמונה חסרה
+      return `${style} artwork`;
     }
-    throw new Error("Invalid format");
+  });
 
-  } catch (e) {
-    // Fallback בטוח באנגלית
-    return styles.map(style => `${style} style artwork (high quality)`);
-  }
+  return Promise.all(promises);
 }
 
 export async function generateWallpaper({ prompt, baseImageBase64, aspectRatio, count = 1, mode = 'creative' }: GenerateImageParams): Promise<{ images: string[]; text: string }> {
   
+  // וידוא מפתח Vercel
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error("Missing API Key");
 
   const ai = new GoogleGenAI({ apiKey: apiKey });
   let prompts: string[] = [];
 
-  // הגדרת רזולוציה (16:9 למחשב או 9:16 לטלפון)
+  // הגדרת גודל תמונה (שמרתי לך את ה-16:9 כי זה עבד טוב)
   let width = 1080;
   let height = 1920;
   if (aspectRatio === '16:9') {
@@ -120,21 +104,24 @@ export async function generateWallpaper({ prompt, baseImageBase64, aspectRatio, 
     if (mode === 'styles') {
       prompts = await generateStylePrompts(ai, prompt);
     } else {
-      prompts = await generateCreativePrompts(ai, prompt, count, !!baseImageBase64);
+      prompts = await generateCreativePrompts(ai, prompt, count || 1);
     }
 
+    // יצירת הקישורים עם מספר אקראי (Seed) כדי להבטיח שהתמונות יהיו שונות
     const validImages = prompts.map(p => {
         const randomSeed = Math.floor(Math.random() * 1000000);
         return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=${width}&height=${height}&nologo=true&seed=${randomSeed}`;
     });
 
-    let resultText = count > 1 ? "Here are your variations." : "Here is your wallpaper.";
-    if (mode === 'styles') resultText = `I've generated 4 distinct styles (Realistic, Anime, Cyberpunk, Watercolor).`;
+    let resultText = "Here is your wallpaper.";
+    if (mode === 'styles') {
+       resultText = `Generated 4 styles: Realistic, Anime, Cyberpunk, Watercolor.`;
+    }
 
     return { images: validImages, text: resultText };
 
   } catch (error) {
-    console.error("Gemini Generation Error:", error);
+    console.error("Generative Error:", error);
     throw error;
   }
 }
