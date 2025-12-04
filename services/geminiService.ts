@@ -14,14 +14,7 @@ function cleanAIResponse(text: string): string {
 }
 
 /**
- * בדיקה אם נשארה עברית בטקסט (כדי לא לשבור את מחולל התמונות)
- */
-function containsHebrew(text: string): boolean {
-  return /[\u0590-\u05FF]/.test(text);
-}
-
-/**
- * Creative Director - משפר ומגוון את הבקשה
+ * Creative Director - עם תרגום חכם מעברית לאנגלית
  */
 async function generateCreativePrompts(ai: GoogleGenAI, basePrompt: string, count: number, isEditing: boolean): Promise<string[]> {
   const safePrompt = basePrompt.replace(/"/g, "'").replace(/\n/g, " ");
@@ -32,12 +25,12 @@ async function generateCreativePrompts(ai: GoogleGenAI, basePrompt: string, coun
       contents: [{
         role: "user",
         parts: [{
-          text: `ROLE: Professional Interpreter & Art Director.
+          text: `ROLE: Expert Translator & Art Director.
 INPUT: "${safePrompt}"
 
 INSTRUCTIONS:
-1. DETECT LANGUAGE: If the INPUT is Hebrew (or non-English), TRANSLATE it to English immediately.
-2. CREATE: Generate ${count} distinct artistic prompt(s) in English based on the translation.
+1. IDENTIFY LANGUAGE: If the INPUT is in Hebrew (or any non-English language), TRANSLATE it to English immediately.
+2. ENHANCE: Create ${count} distinct artistic prompt(s) in English based on the translation.
 3. OUTPUT: Valid JSON Array of strings.
 
 CRITICAL: The Output MUST be in English. Do NOT output Hebrew characters.`
@@ -53,10 +46,10 @@ CRITICAL: The Output MUST be in English. Do NOT output Hebrew characters.`
         if (Array.isArray(prompts) && prompts.length > 0) return prompts.slice(0, count);
     } catch (e) {}
     
-    // רשת ביטחון: אם חזרה עברית, נחזיר ברירת מחדל באנגלית
-    if (containsHebrew(cleanedText)) return ["Artistic masterpiece"];
-    
-    return [cleanedText || "Artistic masterpiece"];
+    // אם ה-AI החזיר טקסט רגיל (שהוא לא JSON) והוא באנגלית - נשתמש בו
+    if (cleanedText && !/[\u0590-\u05FF]/.test(cleanedText)) return [cleanedText];
+
+    return ["Artistic masterpiece"];
 
   } catch (e) {
     return ["Artistic wallpaper"];
@@ -64,7 +57,7 @@ CRITICAL: The Output MUST be in English. Do NOT output Hebrew characters.`
 }
 
 /**
- * Style Master - 4 סגנונות עם תרגום מובנה
+ * Style Master - 4 סגנונות יציבים עם תרגום
  */
 async function generateStylePrompts(ai: GoogleGenAI, basePrompt: string): Promise<string[]> {
   const styles = ["Realistic", "Anime", "Cyberpunk", "Watercolor"];
@@ -102,7 +95,7 @@ OUTPUT FORMAT: Return ONLY a JSON Array of 4 strings in English.`
     throw new Error("Invalid format");
 
   } catch (e) {
-    // Fallback: במקרה חירום נייצר טקסט גנרי באנגלית, כדי לא לשלוח עברית למחולל
+    // Fallback בטוח באנגלית
     return styles.map(style => `${style} style artwork (high quality)`);
   }
 }
